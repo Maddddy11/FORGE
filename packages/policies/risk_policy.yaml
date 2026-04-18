@@ -1,0 +1,17 @@
+risk_thresholds:
+  high: 0.70
+  medium: 0.40
+  low: 0.00
+
+high_risk_keywords:
+  - rupture
+  - fire
+  - leak
+  - shutdown
+  - bypass
+
+approval_policy:
+  require_human_approval_on_high_risk: true
+  approver_roles:
+    - approver
+    - admin
