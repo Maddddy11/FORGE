@@ -1,0 +1,15 @@
+rules:
+  - id: OEM-INT-001
+    title: Do not bypass safety interlocks
+    severity: critical
+    match_keywords: ["bypass", "interlock"]
+
+  - id: ASME-PRESS-002
+    title: Verify pressure boundaries before restart
+    severity: high
+    match_keywords: ["pressure", "restart"]
+
+  - id: API-INSPECT-003
+    title: Confirm inspection checklist completion
+    severity: medium
+    match_keywords: ["inspection", "checklist"]
