@@ -1,0 +1,9 @@
+exclude_dirs:
+  - apps/api/tests
+
+# B105/B106/B107: hardcoded password defaults in config are intentional weak defaults
+# overridden by environment variables at runtime.
+skips:
+  - B105
+  - B106
+  - B107

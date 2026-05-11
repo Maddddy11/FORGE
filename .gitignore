@@ -9,10 +9,17 @@ node_modules/
 
 # Env
 .env
+apps/web/.env.local
 
 # IDE
 .vscode/
 .idea/
+
+# Data & ML artefacts (generated, not source-controlled)
+data/imam_lite.duckdb
+ml/models/
+packages/dbt/target/
+packages/dbt/dbt_packages/
 
 # OS
 .DS_Store

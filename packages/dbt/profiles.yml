@@ -1,0 +1,7 @@
+imam_lite:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "../../data/imam_lite.duckdb"
+      threads: 4

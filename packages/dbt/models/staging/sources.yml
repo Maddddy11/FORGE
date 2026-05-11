@@ -1,0 +1,30 @@
+version: 2
+
+sources:
+  - name: raw
+    description: Raw tables written by the synthetic seed script.
+    tables:
+      - name: sensor_readings
+        description: 15-minute interval telemetry from field sensors per asset.
+        columns:
+          - name: reading_id
+            tests: [unique, not_null]
+          - name: asset_id
+            tests: [not_null]
+          - name: timestamp
+            tests: [not_null]
+
+      - name: incidents
+        description: Incident reports with risk labels and resolution times.
+        columns:
+          - name: incident_id
+            tests: [unique, not_null]
+
+      - name: assets
+        description: Master asset registry.
+        columns:
+          - name: asset_id
+            tests: [unique, not_null]
+
+      - name: work_orders
+        description: Maintenance work orders linked to assets.

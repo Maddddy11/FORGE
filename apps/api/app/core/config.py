@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    api_host: str = Field(default="0.0.0.0", alias="API_HOST")
+    api_host: str = Field(default="0.0.0.0", alias="API_HOST")  # nosec B104 — intentional for containerised deployment
     api_port: int = Field(default=8000, alias="API_PORT")
     environment: str = Field(default="dev", alias="ENVIRONMENT")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     jwt_audience: str = Field(default="imam-lite", alias="JWT_AUDIENCE")
     jwt_issuer: str = Field(default="imam-lite-api", alias="JWT_ISSUER")
     jwt_expires_minutes: int = Field(default=60, alias="JWT_EXPIRES_MINUTES")
+
+    groq_api_key: str | None = Field(default=None, alias="GROQ_API_KEY")
+    groq_model: str = Field(default="llama-3.3-70b-versatile", alias="GROQ_MODEL")
 
     demo_operator_token: str | None = Field(default=None, alias="DEMO_OPERATOR_TOKEN")
     demo_approver_token: str | None = Field(default=None, alias="DEMO_APPROVER_TOKEN")

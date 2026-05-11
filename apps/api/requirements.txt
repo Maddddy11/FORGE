@@ -4,6 +4,12 @@ pydantic==2.11.3
 pydantic-settings==2.8.1
 pyjwt==2.10.1
 python-multipart==0.0.22
+groq==0.13.1
+duckdb==1.2.2
+scikit-learn==1.6.1
+joblib==1.4.2
+numpy==2.2.5
 pytest==8.3.5
 httpx==0.28.1
 ruff==0.11.7
+bandit==1.8.3

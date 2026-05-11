@@ -7,10 +7,18 @@ from app.schemas.approvals import ApprovalRequest, ApprovalResponse
 from app.schemas.common import AuditEvent
 from app.services.approval_service import ApprovalService
 from app.services.audit_service import AuditService
+from app.services.store import store
 
 router = APIRouter(prefix="/recommendations", tags=["recommendations"])
 approval_service = ApprovalService()
 audit_service = AuditService()
+
+
+@router.get("/", response_model=list[dict])
+def list_recommendations(
+    user: Annotated[AuthenticatedUser, Depends(require_roles("operator", "approver", "admin"))],
+) -> list[dict]:
+    return [{"recommendation_id": k, **v} for k, v in store.recommendations.items()]
 
 
 @router.post("/{recommendation_id}/approve", response_model=ApprovalResponse)
