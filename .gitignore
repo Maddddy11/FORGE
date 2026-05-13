@@ -17,9 +17,12 @@ apps/web/.env.local
 
 # Data & ML artefacts (generated, not source-controlled)
 data/imam_lite.duckdb
+data/cmapss/raw/
 ml/models/
 packages/dbt/target/
 packages/dbt/dbt_packages/
+packages/dbt/logs/
+packages/dbt/.user.yml
 
 # OS
 .DS_Store

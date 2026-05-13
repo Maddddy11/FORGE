@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { listRecommendations, approveRecommendation } from "@/lib/api";
+import { useAuth, canApprove } from "@/lib/auth";
 import type { Recommendation } from "@/lib/types";
 
 function riskLabel(score: number) {
@@ -21,14 +23,23 @@ function StateBadge({ state }: { state: string }) {
 }
 
 export default function ApprovalsPage() {
+  const { role, token, ready } = useAuth();
+  const router = useRouter();
+  const approver = canApprove(role);
+
   const [recs, setRecs]       = useState<Recommendation[]>([]);
   const [loading, setLoading] = useState(true);
   const [acting, setActing]   = useState<string | null>(null);
   const [reason, setReason]   = useState<Record<string, string>>({});
 
+  useEffect(() => {
+    if (ready && !token) router.replace("/login");
+  }, [ready, token, router]);
+
   async function refresh() {
+    if (!token) return;
     try {
-      const all = await listRecommendations();
+      const all = await listRecommendations(token);
       setRecs(all.sort((a, b) => b.risk_score - a.risk_score));
     } catch {
       setRecs([]);
@@ -37,12 +48,13 @@ export default function ApprovalsPage() {
     }
   }
 
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => { if (token) refresh(); }, [token]);
 
   async function decide(id: string, approved: boolean) {
+    if (!token) return;
     setActing(id);
     try {
-      await approveRecommendation(id, approved, reason[id] || "(no reason given)");
+      await approveRecommendation(id, approved, reason[id] || "(no reason given)", token);
       await refresh();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Request failed");
@@ -50,6 +62,8 @@ export default function ApprovalsPage() {
       setActing(null);
     }
   }
+
+  if (!ready || !token) return null;
 
   const pending  = recs.filter((r) => r.state === "pending_approval");
   const resolved = recs.filter((r) => r.state !== "pending_approval");
@@ -66,6 +80,18 @@ export default function ApprovalsPage() {
             </span>
           )}
         </div>
+        {!approver && (
+          <div style={{
+            display: "inline-flex", alignItems: "center", gap: ".5rem",
+            padding: ".375rem .75rem",
+            background: "rgba(30,58,138,.06)",
+            border: "1px solid rgba(30,58,138,.2)",
+            fontSize: ".75rem", color: "var(--info)",
+            fontFamily: "var(--font-mono)",
+          }}>
+            READ-ONLY — {role?.toUpperCase()} role cannot approve. Sign in as Approver or Admin to action items.
+          </div>
+        )}
       </div>
 
       {loading && <div className="loader">Loading recommendations…</div>}
@@ -87,8 +113,8 @@ export default function ApprovalsPage() {
                 <th>Risk Score</th>
                 <th>Violations</th>
                 <th>Top Action</th>
-                <th>Reason</th>
-                <th style={{ width: "180px" }}>Decision</th>
+                {approver && <th>Reason</th>}
+                {approver && <th style={{ width: "180px" }}>Decision</th>}
               </tr>
             </thead>
             <tbody>
@@ -114,35 +140,39 @@ export default function ApprovalsPage() {
                       Confidence: {((r.actions[0]?.confidence ?? 0) * 100).toFixed(0)}%
                     </div>
                   </td>
-                  <td>
-                    <input
-                      className="form-control"
-                      style={{ fontSize: ".75rem", padding: ".375rem .5rem" }}
-                      placeholder="Approver note…"
-                      value={reason[r.recommendation_id] ?? ""}
-                      onChange={(e) => setReason((prev) => ({ ...prev, [r.recommendation_id]: e.target.value }))}
-                    />
-                  </td>
-                  <td>
-                    <div style={{ display: "flex", gap: ".375rem" }}>
-                      <button
-                        className="btn btn-success"
-                        style={{ padding: ".375rem .75rem", fontSize: ".75rem" }}
-                        disabled={acting === r.recommendation_id}
-                        onClick={() => decide(r.recommendation_id, true)}
-                      >
-                        Approve
-                      </button>
-                      <button
-                        className="btn btn-danger"
-                        style={{ padding: ".375rem .75rem", fontSize: ".75rem" }}
-                        disabled={acting === r.recommendation_id}
-                        onClick={() => decide(r.recommendation_id, false)}
-                      >
-                        Reject
-                      </button>
-                    </div>
-                  </td>
+                  {approver && (
+                    <td>
+                      <input
+                        className="form-control"
+                        style={{ fontSize: ".75rem", padding: ".375rem .5rem" }}
+                        placeholder="Approver note…"
+                        value={reason[r.recommendation_id] ?? ""}
+                        onChange={(e) => setReason((prev) => ({ ...prev, [r.recommendation_id]: e.target.value }))}
+                      />
+                    </td>
+                  )}
+                  {approver && (
+                    <td>
+                      <div style={{ display: "flex", gap: ".375rem" }}>
+                        <button
+                          className="btn btn-success"
+                          style={{ padding: ".375rem .75rem", fontSize: ".75rem" }}
+                          disabled={acting === r.recommendation_id}
+                          onClick={() => decide(r.recommendation_id, true)}
+                        >
+                          Approve
+                        </button>
+                        <button
+                          className="btn btn-danger"
+                          style={{ padding: ".375rem .75rem", fontSize: ".75rem" }}
+                          disabled={acting === r.recommendation_id}
+                          onClick={() => decide(r.recommendation_id, false)}
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

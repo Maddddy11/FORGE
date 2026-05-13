@@ -207,14 +207,15 @@ def seed(db_path: Path = DB_PATH) -> None:
             temperature_c    DOUBLE,
             vibration_mms    DOUBLE,
             pressure_bar     DOUBLE,
-            is_anomaly_true  BOOLEAN
+            is_anomaly_true  BOOLEAN,
+            rul              INTEGER
         )
     """)
     con.executemany(
-        "INSERT INTO sensor_readings VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO sensor_readings VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         [[r["reading_id"], r["asset_id"], r["timestamp"],
           r["temperature_c"], r["vibration_mms"], r["pressure_bar"],
-          r["is_anomaly_true"]] for r in readings],
+          r["is_anomaly_true"], None] for r in readings],
     )
 
     incidents = generate_incidents()

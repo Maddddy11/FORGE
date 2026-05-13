@@ -33,6 +33,12 @@ container-scan:
 seed:
 	.venv/bin/python data/synthetic/seed.py
 
+cmapss-fetch:
+	.venv/bin/python data/cmapss/fetch.py
+
+cmapss-seed:
+	.venv/bin/python data/cmapss/seed_cmapss.py
+
 dbt-run:
 	cd packages/dbt && ../../.venv/bin/dbt run --profiles-dir .
 
@@ -42,7 +48,11 @@ dbt-test:
 ml-train:
 	.venv/bin/python ml/train.py
 
+# Synthetic-only pipeline (no network required)
 pipeline: seed dbt-run ml-train
+
+# CMAPSS pipeline: fetch real data, seed DB, run dbt, train all models
+cmapss-pipeline: cmapss-fetch seed cmapss-seed dbt-run ml-train
 
 # ── Convenience aggregates ───────────────────────────────────────────────────
 lint: api-lint web-lint

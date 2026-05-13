@@ -75,7 +75,7 @@ function IncidentChart({ daily }: { daily: DailyKPI[] }) {
             <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
               <div style={{ height: `${(d.high_risk_count / max) * 100}%`, background: "var(--danger)", minHeight: d.high_risk_count > 0 ? "2px" : "0" }} />
               <div style={{ height: `${(d.medium_risk_count / max) * 100}%`, background: "var(--warning)", minHeight: d.medium_risk_count > 0 ? "2px" : "0" }} />
-              <div style={{ height: `${(d.low_risk_count / max) * 100}%`, background: "var(--layer-03)", minHeight: d.low_risk_count > 0 ? "2px" : "0" }} />
+              <div style={{ height: `${(d.low_risk_count / max) * 100}%`, background: "var(--border-strong)", minHeight: d.low_risk_count > 0 ? "2px" : "0" }} />
             </div>
           </div>
         ))}
@@ -84,7 +84,7 @@ function IncidentChart({ daily }: { daily: DailyKPI[] }) {
         {[
           { color: "var(--danger)",   label: "High" },
           { color: "var(--warning)",  label: "Medium" },
-          { color: "var(--layer-03)", label: "Low" },
+          { color: "var(--border-strong)", label: "Low" },
         ].map(({ color, label }) => (
           <div key={label} style={{ display: "flex", alignItems: "center", gap: ".375rem", fontSize: ".75rem", color: "var(--text-helper)" }}>
             <span style={{ width: 10, height: 10, background: color, display: "inline-block" }} />

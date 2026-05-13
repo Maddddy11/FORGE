@@ -2,6 +2,7 @@ version: 2
 
 sources:
   - name: raw
+    schema: main
     description: Raw tables written by the synthetic seed script.
     tables:
       - name: sensor_readings

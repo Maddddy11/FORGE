@@ -18,6 +18,7 @@ aggregated as (
         avg(temperature_c)                                              as avg_temp_c,
         avg(vibration_mms)                                              as avg_vib_mms,
         avg(pressure_bar)                                               as avg_pressure_bar,
+        min(rul)                                                        as min_rul,
         max(timestamp)                                                  as last_reading_at,
         -- Health score: 1 = fully healthy, 0 = all readings anomalous
         round(
@@ -43,6 +44,7 @@ select
     ag.avg_temp_c,
     ag.avg_vib_mms,
     ag.avg_pressure_bar,
+    ag.min_rul,
     ag.last_reading_at,
     ag.health_score
 from aggregated ag

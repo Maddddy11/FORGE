@@ -8,17 +8,20 @@ Produces:
     ml/models/anomaly_detector.joblib   — IsolationForest on sensor readings
     ml/models/risk_classifier.joblib    — TF-IDF + LogisticRegression on incident text
     ml/models/feature_meta.joblib       — per-asset feature scaling parameters
+    ml/models/rul_predictor.joblib      — GradientBoosting RUL regressor (all 100 FD001 engines)
 """
 from pathlib import Path
 
 import duckdb
 import joblib
 import numpy as np
-from sklearn.ensemble import IsolationForest
+import pandas as pd
+from sklearn.ensemble import GradientBoostingRegressor, IsolationForest
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     classification_report,
+    mean_absolute_error,
     roc_auc_score,
 )
 from sklearn.model_selection import train_test_split
@@ -27,7 +30,12 @@ from sklearn.preprocessing import StandardScaler
 
 DB_PATH    = Path(__file__).parent.parent / "data" / "imam_lite.duckdb"
 MODELS_DIR = Path(__file__).parent / "models"
+CMAPSS_FD001 = Path(__file__).parent.parent / "data" / "cmapss" / "raw" / "train_FD001.txt"
 MODELS_DIR.mkdir(exist_ok=True)
+
+_CMAPSS_COLS = ["unit", "cycle", "op1", "op2", "op3"] + [f"s{i}" for i in range(1, 22)]
+# Sensors with non-trivial variance in FD001 (constant sensors excluded)
+_FD001_FEATURES = ["s2", "s3", "s4", "s7", "s8", "s9", "s11", "s12", "s13", "s14", "s15", "s17", "s20", "s21"]
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -147,6 +155,54 @@ def train_risk_classifier(con: duckdb.DuckDBPyConnection) -> None:
     print(f"Saved → {MODELS_DIR}/risk_classifier.joblib")
 
 
+# ── 3. RUL Predictor (CMAPSS FD001) ───────────────────────────────────────
+
+def train_rul_predictor() -> None:
+    print("\n=== RUL Predictor (GradientBoosting — NASA CMAPSS FD001) ===")
+
+    if not CMAPSS_FD001.exists():
+        print(f"  CMAPSS data not found at {CMAPSS_FD001}")
+        print("  Run: python data/cmapss/fetch.py — then re-run training.")
+        return
+
+    df = pd.read_csv(CMAPSS_FD001, sep=r"\s+", header=None, names=_CMAPSS_COLS)
+    df = df.dropna(axis=1, how="all")
+
+    # Compute RUL label per row (run-to-failure: max cycle minus current)
+    df["rul"] = df.groupby("unit")["cycle"].transform("max") - df["cycle"]
+
+    # Clip RUL at 125 — standard CMAPSS convention: anything > 125 is "healthy"
+    df["rul"] = df["rul"].clip(upper=125)
+
+    X = df[_FD001_FEATURES].values
+    y = df["rul"].values
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42
+    )
+
+    model = GradientBoostingRegressor(
+        n_estimators=200,
+        max_depth=4,
+        learning_rate=0.05,
+        subsample=0.8,
+        random_state=42,
+    )
+    model.fit(X_train, y_train)
+
+    y_pred = model.predict(X_test)
+    mae = mean_absolute_error(y_test, y_pred)
+    print(f"Loaded {len(df):,} rows from FD001 ({df['unit'].nunique()} engines)")
+    print(f"MAE: {mae:.1f} cycles  (lower = better)")
+
+    joblib.dump(model, MODELS_DIR / "rul_predictor.joblib")
+    print(f"Saved → {MODELS_DIR}/rul_predictor.joblib")
+    print("  Feature importance (top 5):")
+    top5 = sorted(zip(_FD001_FEATURES, model.feature_importances_), key=lambda x: -x[1])[:5]
+    for name, imp in top5:
+        print(f"    {name}: {imp:.3f}")
+
+
 # ── Entry point ────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -154,6 +210,7 @@ def main() -> None:
     train_anomaly_detector(con)
     train_risk_classifier(con)
     con.close()
+    train_rul_predictor()
     print("\nAll models trained successfully.")
 
 

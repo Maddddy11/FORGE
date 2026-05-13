@@ -14,11 +14,15 @@ _MODELS_DIR = Path(__file__).parents[4] / "ml" / "models"
 _risk_classifier  = None
 _anomaly_detector = None
 _feature_meta     = None
+_rul_predictor    = None
 _models_loaded    = False
+
+# Sensor order expected by the RUL predictor (must match ml/train.py _FD001_FEATURES)
+_RUL_FEATURE_NAMES = ["s2", "s3", "s4", "s7", "s8", "s9", "s11", "s12", "s13", "s14", "s15", "s17", "s20", "s21"]
 
 
 def _load_models() -> None:
-    global _risk_classifier, _anomaly_detector, _feature_meta, _models_loaded
+    global _risk_classifier, _anomaly_detector, _feature_meta, _rul_predictor, _models_loaded
     if _models_loaded:
         return
     try:
@@ -26,6 +30,7 @@ def _load_models() -> None:
         _risk_classifier  = joblib.load(_MODELS_DIR / "risk_classifier.joblib")
         _anomaly_detector = joblib.load(_MODELS_DIR / "anomaly_detector.joblib")
         _feature_meta     = joblib.load(_MODELS_DIR / "feature_meta.joblib")
+        _rul_predictor    = joblib.load(_MODELS_DIR / "rul_predictor.joblib")
         _models_loaded = True
         logger.info("ML models loaded from %s", _MODELS_DIR)
     except FileNotFoundError:
@@ -85,6 +90,25 @@ def score_anomaly(asset_id: str, temperature_c: float, vibration_mms: float, pre
         return round(score, 3)
     except Exception:
         logger.warning("Anomaly detector inference failed", exc_info=True)
+        return None
+
+
+def predict_rul(sensor_values: dict[str, float]) -> float | None:
+    """
+    Predict Remaining Useful Life (cycles) from raw CMAPSS sensor readings.
+
+    sensor_values must contain keys matching _RUL_FEATURE_NAMES (s2, s3, …).
+    Returns predicted RUL in cycles, or None if the model is unavailable.
+    """
+    if _rul_predictor is None:
+        return None
+    try:
+        import numpy as np
+        features = np.array([[sensor_values.get(k, 0.0) for k in _RUL_FEATURE_NAMES]])
+        rul = float(_rul_predictor.predict(features)[0])
+        return round(max(0.0, rul), 1)
+    except Exception:
+        logger.warning("RUL predictor inference failed", exc_info=True)
         return None
 
 

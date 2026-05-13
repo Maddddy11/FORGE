@@ -11,6 +11,7 @@ cleaned as (
         vibration_mms,
         pressure_bar,
         is_anomaly_true,
+        rul,
         -- Z-scores computed relative to the full dataset for feature inspection
         (temperature_c - avg(temperature_c) over ()) / nullif(stddev(temperature_c) over (), 0) as temp_zscore,
         (vibration_mms - avg(vibration_mms) over ()) / nullif(stddev(vibration_mms) over (), 0) as vib_zscore,

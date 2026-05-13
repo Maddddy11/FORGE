@@ -14,6 +14,7 @@ with_stats as (
         vibration_mms,
         pressure_bar,
         is_anomaly_true,
+        rul,
         temp_zscore,
         vib_zscore,
         pres_zscore,

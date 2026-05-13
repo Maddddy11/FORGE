@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { analyzeIncident } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import type { Recommendation } from "@/lib/types";
 
 const ASSETS = ["PUMP-101", "PUMP-102", "COMP-201", "HEX-301", "VALVE-401"];
@@ -76,20 +78,27 @@ function RecommendationPanel({ rec }: { rec: Recommendation }) {
 }
 
 export default function AnalyzePage() {
+  const { role, token, ready } = useAuth();
+  const router = useRouter();
+
   const [assetId, setAssetId]     = useState(ASSETS[0]);
   const [summary, setSummary]     = useState("");
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState<string | null>(null);
   const [result, setResult]       = useState<Recommendation | null>(null);
 
+  useEffect(() => {
+    if (ready && !token) router.replace("/login");
+  }, [ready, token, router]);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!summary.trim()) return;
+    if (!summary.trim() || !token) return;
     setLoading(true);
     setError(null);
     setResult(null);
     try {
-      const rec = await analyzeIncident(assetId, summary);
+      const rec = await analyzeIncident(assetId, summary, token);
       setResult(rec);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Request failed");
@@ -97,6 +106,8 @@ export default function AnalyzePage() {
       setLoading(false);
     }
   }
+
+  if (!ready || !token) return null;
 
   return (
     <>
