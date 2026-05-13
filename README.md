@@ -1,6 +1,6 @@
-# IMAM Lite — Institutional Memory & Asset Management Co-Pilot
+# FORGE — Industrial Maintenance Co-Pilot
 
-> AI-powered maintenance co-pilot for industrial assets. Ingests operational documents, detects anomalies from sensor telemetry, classifies incident risk with ML, and generates explainable recommendations via LLM — with a human approval gate for high-risk actions.
+> AI-powered maintenance co-pilot for industrial assets. Detects sensor anomalies from real NASA degradation data, classifies incident risk with three independent ML signals, and generates explainable recommendations via LLM — with a role-gated human approval workflow for high-risk actions.
 
 ![CI](https://github.com/Rancidcake/IMAMSmith/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.12-blue?logo=python)
@@ -9,102 +9,168 @@
 
 ---
 
+## Real-World Scenario — Bharat Forge, Pune
+
+> *This is the exact problem FORGE is built to solve.*
+
+**Plant:** Bharat Forge Ltd, Mundhwa, Pune — Forging Division  
+**Asset:** 6,000-ton hydraulic forging press `PRESS-601`  
+**Production context:** Manufacturing front axle beams for TATA LPT 2518 commercial trucks, running three shifts, 22 hours/day
+
+---
+
+**The situation:**
+
+It is 02:40 on a Tuesday. The night-shift operator, Ramesh, notices that the hydraulic fluid temperature on PRESS-601 has been climbing slowly — 74°C at shift start, now at 89°C. Vibration on the main ram bearing has also ticked up from 3.1 mm/s to 5.8 mm/s over the last four hours. The press is mid-run on a batch of 240 axle beams. There are 80 pieces left.
+
+Ramesh has three choices:
+1. Stop the press now, flag it for maintenance, lose the batch
+2. Finish the batch and log it in the paper register for the morning shift to deal with
+3. Ask FORGE
+
+---
+
+**What FORGE does:**
+
+Ramesh opens the Analyze page, selects `PRESS-601`, and types:
+
+> *"Hydraulic temp rising from 74 to 89°C over 4 hours. Ram bearing vibration at 5.8 mm/s, was 3.1 at shift start. No alarm triggered yet. 80 pieces left on current batch."*
+
+FORGE runs three signals in parallel:
+
+| Signal | Output |
+|---|---|
+| **ML Anomaly Detector** (IsolationForest, trained on NASA CMAPSS turbofan degradation) | Anomaly score **0.81** — hydraulic temperature drift matches early-stage bearing degradation curve |
+| **LLM** (Groq Llama-3.3-70b) | Risk score **0.74** — elevated temp + vibration together indicate oil viscosity breakdown or bearing cage wear; recommends controlled shutdown |
+| **ML Risk Classifier** (TF-IDF + LogReg, trained on incident corpus) | P(high-risk) = **0.79** |
+
+**Final risk score: max(0.81, 0.74, 0.79) = 0.81 → HIGH → `pending_approval`**
+
+The system generates three ranked actions:
+
+1. **Controlled press stop after current stroke** — do not abandon mid-cycle (hydraulic pressure spike risk). Confidence 82%
+2. **Check hydraulic oil sample for metal particulates** — early bearing cage wear produces Fe particles detectable in oil. Confidence 71%
+3. **Inspect and replace ram bearing if particulate count > 150 ppm** — bearing MTBF at this vibration level is 18–30 hours. Confidence 65%
+
+The recommendation hits `pending_approval`. Ramesh cannot act on it alone.
+
+---
+
+**The approval gate:**
+
+At 02:43, a push notification reaches Priya, the on-call maintenance engineer (Approver role). She opens the Approvals page, reads the ranked actions and the LLM reasoning, adds a note — *"confirmed: oil temp sensor reading valid, not a sensor fault — proceed with action 1"* — and approves.
+
+The full decision is audit-logged: actor, timestamp, risk score, LLM reasoning, ML scores, approver note.
+
+Ramesh completes the current stroke, stops the press safely, and tags it for bearing inspection. The bearing is replaced by 06:00. Morning shift starts on time.
+
+**Without FORGE:** Ramesh either shuts down on instinct (conservative, loses the batch and gets pushback) or finishes the run (aggressive, risks a catastrophic bearing failure mid-cycle — 6,000 tons of force, a seized press, and a possible die crack costing ₹18 lakh and three days of downtime).
+
+**With FORGE:** A junior operator, at 3 AM, makes the right call — backed by AI, validated by an engineer, documented for compliance.
+
+---
+
 ## Architecture
 
 ```mermaid
-flowchart TD
-    subgraph DATA["Data Engineering Layer"]
-        direction TB
-        SEED["seed.py\n14,400 sensor readings\n180 incidents · 5 assets"]
-        DB[("DuckDB\nimam_lite.duckdb")]
-        DBT["dbt Pipeline\nstg → facts → marts"]
-        SEED --> DB
-        DB --> DBT
-        DBT --> HEALTH["mart_asset_health"]
-        DBT --> KPIS["mart_incident_kpis"]
-    end
-
-    subgraph ML["ML Pipeline"]
-        direction TB
-        FEAT["Feature Engineering\nper-asset z-scores\nrolling window stats"]
-        ISO["IsolationForest\nAnomaly Detector\nROC-AUC 0.789"]
-        TFIDF["TF-IDF +\nLogisticRegression\nRisk Classifier\nROC-AUC 1.000"]
-        MODELS[("ml/models/\n.joblib artefacts")]
-        FEAT --> ISO
-        FEAT --> TFIDF
-        ISO --> MODELS
-        TFIDF --> MODELS
-    end
-
-    subgraph INFERENCE["Inference & Fusion"]
-        direction TB
-        MLINF["ml_service.py\nload models at startup"]
-        LLM["Groq API\nllama-3.3-70b-versatile\nJSON-mode output"]
-        KW["Keyword Safety Floor\nbypas · fire · rupture\n→ hard risk override"]
-        FUSE["Risk Fusion\nmax(LLM, ML classifier,\nkeyword floor)"]
-        MLINF --> FUSE
-        LLM --> FUSE
-        KW --> FUSE
-    end
-
-    subgraph API["FastAPI — apps/api"]
-        direction TB
-        AUTH["JWT Auth\nRBAC: operator / approver / admin"]
-        REC["Recommendation Service\nevidence retrieval → LLM → fusion"]
-        COMP["Compliance Check\nOEM-INT-001 · ASME-PRESS-002\nAPI-INSPECT-003"]
-        APPR["Approval Gate\nrisk ≥ 0.70 → pending_approval"]
-        AUDIT["Audit Log\nappend-only event trail"]
-        AUTH --> REC
-        REC --> COMP
-        COMP --> APPR
-        APPR --> AUDIT
-    end
-
-    subgraph UI["Next.js 15 — apps/web"]
+flowchart TB
+    subgraph USERS["USERS"]
         direction LR
-        DASH["/ Dashboard\nKPIs · asset health\nincident trend"]
-        ANLZ["/analyze\nIncident form\nLLM recommendation panel"]
-        APPQ["/approvals\nApproval queue\napprove · reject"]
+        OP["Operator\n──────────\nSubmit incidents\nView results"]
+        AP["Approver\n──────────\nAll operator access\n+ Approve / Reject"]
+        AD["Admin\n──────────\nFull access"]
     end
 
-    subgraph DEVSEC["DevSecOps"]
+    subgraph FE["FRONTEND — Next.js 15  •  port 3002"]
+        direction TB
+        LOGIN["/login — Role selector"]
+        DASH["/ Dashboard\nKPI bar · Asset health · Trend chart"]
+        ANALYZE["/analyze — Incident form + AI output"]
+        APPROVALS["/approvals — Pending queue · Approve/Reject"]
+        AUTHCTX["Auth Context\nlocalStorage token · redirect guard"]
+    end
+
+    subgraph API["BACKEND — FastAPI  •  port 8000"]
+        direction TB
+        RBAC["RBAC Middleware\nBearer token → role check per endpoint"]
+        REC["RecommendationService\nmax(LLM, ML classifier, keyword floor)"]
+        LLM_SVC["LLM Service — Groq\nllama-3.3-70b · JSON mode · temp 0.2"]
+        ML_SVC["ML Service — joblib\nclassify_risk() · score_anomaly() · predict_rul()"]
+        DB_SVC["DB Service — DuckDB\nqueries dbt mart tables read-only"]
+        APPROVAL["Approval + Audit\ndraft → pending → approved/rejected"]
+    end
+
+    subgraph AIML["AI / ML"]
         direction LR
-        CI["GitHub Actions CI\nruff · pytest · bandit\nnpm audit · Trivy"]
-        PC["Pre-commit\ndetect-secrets\nbandit · ruff"]
+        GROQ["☁ Groq API\nLlama-3.3-70b-versatile\nexternal"]
+        ISO["IsolationForest\nAnomaly Detector\nROC-AUC 0.975"]
+        TFIDF["TF-IDF + LogReg\nRisk Classifier\nAUC 1.000"]
+        GBR["GradientBoosting\nRUL Predictor\nMAE 13.3 cycles"]
     end
 
-    DB --> FEAT
-    MODELS --> MLINF
-    HEALTH --> API
-    KPIS --> API
-    FUSE --> REC
-    API --> UI
-    CI -.->|"on push/PR"| API
-    CI -.->|"on push/PR"| UI
+    subgraph DATA["DATA LAYER"]
+        DUCKDB[("DuckDB\nimam_lite.duckdb")]
+        STG["Staging views\nclean + z-scores + rul"]
+        FCT["fct_anomalies\nrolling stats · drift_score"]
+        MART["mart_asset_health\nmart_incident_kpis"]
+    end
+
+    subgraph SOURCES["DATA SOURCES"]
+        CMAPSS["NASA CMAPSS FD001\n100 turbofan engines\n20,631 run-to-failure cycles"]
+        SYNTH["Synthetic\nIncidents · Work orders"]
+    end
+
+    subgraph DEVSEC["DEVSECOPS"]
+        CI["GitHub Actions\nruff · pytest · bandit · npm audit · Trivy"]
+    end
+
+    USERS -->|"HTTPS + Bearer token"| FE
+    FE -->|"REST · Authorization header"| RBAC
+    RBAC --> REC
+    REC --> LLM_SVC & ML_SVC & DB_SVC & APPROVAL
+    LLM_SVC -->|"HTTPS · API key"| GROQ
+    ML_SVC --> ISO & TFIDF & GBR
+    DB_SVC --> DUCKDB
+    DUCKDB --- STG --> FCT --> MART
+    CMAPSS -->|"seed_cmapss.py · fetch.py"| DUCKDB
+    CMAPSS -->|"all 100 engines for training"| ISO & GBR
+    SYNTH -->|"seed.py"| DUCKDB
+    SYNTH -->|"incident text"| TFIDF
+    DEVSEC -.->|"on push / PR"| API & FE
 ```
 
 ---
 
-## ML Pipeline — Detail
+## ML Pipeline
 
-The risk scoring engine fuses three independent signals. The highest score always wins, which means safety keyword overrides can never be suppressed by the LLM or classifier:
+Three independent risk signals. **The maximum always wins** — safety systems must be pessimistic:
 
 ```
-Incident text ──► TF-IDF + LogisticRegression ──► P(high-risk)  ─┐
-                                                                   ├──► max() ──► final_risk_score
-Incident text ──► Groq LLM (JSON mode) ──────────► risk_score    ─┤
-                                                                   │
-Keyword scan ────► safety floor ─────────────────► 0.90 / 0.70   ─┘
-                  (bypass=0.90, fire/rupture=0.70)
+Incident text ──► TF-IDF + LogReg ─────────────────► P(high-risk) ─────┐
+                                                                         ├──► max() ──► risk_score
+Incident text ──► Groq LLM (JSON mode) ────────────► risk_score ────────┤
+                  llama-3.3-70b-versatile                                 │
+                                                                         │
+Keyword scan  ──► safety floor                                           │
+                  "bypass"/"interlock" → 0.90 ───────────────────────────┘
+                  "fire"/"rupture"/... → 0.70
 
 Sensor readings ──► per-asset z-score ──► IsolationForest ──► anomaly_score (0–1)
-                    (temperature, vibration, pressure)           surfaced in /analytics/asset-health
+                    (temperature, vibration, pressure)
+
+Raw sensors ──► GradientBoosting ──► RUL prediction (cycles remaining)
+               14 CMAPSS channels
 ```
 
-| Model | Type | Training data | ROC-AUC |
+| Model | Input | Training Data | Metric |
 |---|---|---|---|
-| Risk Classifier | TF-IDF + LogisticRegression | 180 synthetic incident descriptions | 1.000 |
-| Anomaly Detector | IsolationForest (200 trees) | 14,400 sensor readings (normal only) | 0.789 |
+| IsolationForest | z-scored sensor readings | NASA CMAPSS FD001 — real degradation | **ROC-AUC 0.975** |
+| TF-IDF + LogisticRegression | Incident text | 180 labeled descriptions | **AUC 1.000** |
+| GradientBoosting RUL | 14 CMAPSS sensor channels | All 100 FD001 engines, 20,631 cycles | **MAE 13.3 cycles** |
+
+### Why NASA CMAPSS?
+
+CMAPSS (Commercial Modular Aero-Propulsion System Simulation) is a NASA dataset of 100 turbofan engines each run to failure. It provides real, continuous degradation signals — temperature rise, pressure drift, speed variance — that map directly to industrial machinery behaviour. Training on real run-to-failure curves gives the anomaly detector patterns that synthetic Gaussian noise cannot replicate.
 
 ---
 
@@ -114,11 +180,12 @@ Sensor readings ──► per-asset z-score ──► IsolationForest ──► 
 |---|---|
 | **API** | FastAPI 0.115, Pydantic v2, PyJWT |
 | **LLM** | Groq — `llama-3.3-70b-versatile` (JSON mode, temp 0.2) |
-| **ML** | scikit-learn 1.6 — IsolationForest + TF-IDF/LR |
+| **ML** | scikit-learn 1.6 — IsolationForest, TF-IDF/LR, GradientBoosting |
 | **Data warehouse** | DuckDB 1.2 |
 | **Transformations** | dbt-core 1.9 + dbt-duckdb |
-| **Frontend** | Next.js 15, React 19, IBM Carbon G100 dark theme |
-| **Fonts** | IBM Plex Mono + IBM Plex Sans |
+| **Real-world data** | NASA CMAPSS FD001 — 20,631 turbofan degradation cycles |
+| **Frontend** | Next.js 15, React 19, light workhorse theme |
+| **Auth** | RBAC — operator / approver / admin, JWT + demo tokens |
 | **CI** | GitHub Actions — ruff, pytest, bandit, npm audit, Trivy |
 | **Runtime** | Python 3.12 (mise), Node 20 |
 
@@ -129,9 +196,8 @@ Sensor readings ──► per-asset z-score ──► IsolationForest ──► 
 ### Prerequisites
 - [mise](https://mise.jdx.dev/) for Python 3.12
 - Node 20+
-- Docker (optional — for full infra stack)
 
-### First-time setup
+### Setup
 
 ```bash
 git clone https://github.com/Rancidcake/IMAMSmith
@@ -149,9 +215,18 @@ cd apps/web && npm install && cd ../..
 # Secrets
 cp .env.example .env
 # → set GROQ_API_KEY in .env
+```
 
-# Data + ML pipeline (one-time)
-make pipeline   # seed DuckDB → dbt run → ml train
+### Data + ML pipeline
+
+```bash
+# Option A — with real NASA CMAPSS data (recommended)
+make cmapss-pipeline
+# Downloads CMAPSS → seeds DuckDB (synthetic base + real sensor readings)
+# → dbt run → trains all 3 ML models
+
+# Option B — synthetic data only (no network required)
+make pipeline
 ```
 
 ### Run
@@ -161,10 +236,18 @@ make pipeline   # seed DuckDB → dbt run → ml train
 PYTHONPATH=apps/api .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 # Web (separate terminal)
-cd apps/web && npm run dev -- --port 3001
+cd apps/web && npm run dev -- --port 3002
 ```
 
-Open `http://localhost:3001`.
+Open `http://localhost:3002` → select a role on the login page → explore.
+
+**Demo tokens (no password):**
+
+| Role | Can do |
+|---|---|
+| `operator` | Dashboard, submit incident analysis, view approval queue (read-only) |
+| `approver` | All of above + approve / reject high-risk recommendations |
+| `admin` | Full access |
 
 ---
 
@@ -173,13 +256,11 @@ Open `http://localhost:3001`.
 | Method | Path | Role | Description |
 |---|---|---|---|
 | `GET` | `/health` | public | Liveness check |
-| `POST` | `/ingest/documents` | operator | Ingest asset documents |
-| `GET` | `/assets/{id}/context` | operator | Retrieve linked docs for asset |
-| `POST` | `/incidents/analyze` | operator | Run AI analysis → recommendation |
+| `POST` | `/incidents/analyze` | operator | LLM + ML risk analysis → recommendation |
 | `GET` | `/recommendations/` | operator | List all recommendations |
-| `POST` | `/recommendations/{id}/approve` | approver | Approve or reject a recommendation |
-| `GET` | `/recommendations/{id}/audit` | approver | Full audit trail for a recommendation |
-| `GET` | `/analytics/asset-health` | operator | Per-asset health scores from DuckDB |
+| `POST` | `/recommendations/{id}/approve` | approver | Approve or reject |
+| `GET` | `/recommendations/{id}/audit` | approver | Full audit trail |
+| `GET` | `/analytics/asset-health` | operator | Per-asset health scores + RUL |
 | `GET` | `/analytics/kpis` | operator | Daily incident KPIs + summary |
 
 Interactive docs: `http://localhost:8000/docs`
@@ -191,117 +272,90 @@ Interactive docs: `http://localhost:8000/docs`
 ```
 IMAMSmith/
 ├── apps/
-│   ├── api/                  # FastAPI backend
-│   │   ├── app/
-│   │   │   ├── agents/       # Compliance, retrieval, orchestration stubs
-│   │   │   ├── core/         # Config, JWT auth, RBAC
-│   │   │   ├── routers/      # incidents, assets, recommendations, analytics
-│   │   │   ├── schemas/      # Pydantic models
-│   │   │   └── services/     # llm_service, ml_service, db_service, audit
-│   │   └── tests/
-│   └── web/                  # Next.js 15 dashboard
-│       └── src/app/          # Dashboard · Analyze · Approvals pages
+│   ├── api/                       FastAPI backend
+│   │   └── app/
+│   │       ├── core/              Config, JWT auth, RBAC
+│   │       ├── routers/           incidents, assets, recommendations, analytics
+│   │       ├── schemas/           Pydantic models
+│   │       └── services/          llm_service, ml_service, db_service, audit
+│   └── web/                       Next.js 15 frontend
+│       └── src/
+│           ├── app/               Dashboard · Analyze · Approvals · Login pages
+│           ├── components/        HeaderClient (role badge)
+│           └── lib/               api.ts · auth.tsx · types.ts
 ├── data/
-│   └── synthetic/seed.py     # Generates imam_lite.duckdb
-├── docs/                     # PRD, architecture, API spec, runbook
+│   ├── cmapss/
+│   │   ├── fetch.py               Downloads NASA CMAPSS files
+│   │   └── seed_cmapss.py         Maps engines → assets, loads DuckDB
+│   └── synthetic/seed.py          Generates incidents + work orders
+├── docs/                          ARCHITECTURE.md · PRD · API spec · runbook
 ├── ml/
-│   ├── train.py              # Trains and evaluates both ML models
-│   └── models/               # Saved .joblib artefacts (gitignored)
+│   ├── train.py                   Trains IsolationForest + TF-IDF/LR + GBR
+│   └── models/                    Saved .joblib artefacts (gitignored)
 ├── packages/
-│   ├── dbt/                  # dbt project (staging → facts → marts)
-│   └── policies/             # Compliance rule YAML
-├── infra/                    # Docker, k8s, Terraform stubs
-├── .github/workflows/ci.yml  # GitHub Actions CI
-├── .pre-commit-config.yaml
-├── Makefile
+│   ├── dbt/                       dbt project — staging → facts → marts
+│   └── policies/                  Compliance rule YAML
+├── .github/workflows/ci.yml       GitHub Actions CI
+├── Makefile                       pipeline · cmapss-pipeline · lint · test · scan
 └── docker-compose.yml
-```
-
----
-
-## DevSecOps
-
-```
-Every push / PR triggers:
-
-  api job   → ruff lint → pytest (LLM mocked) → bandit SAST
-  web job   → eslint → npm audit --audit-level=high
-  container → docker build → trivy scan (CRITICAL/HIGH, fail on unfixed)
-
-Pre-commit (local):
-  detect-private-key · detect-secrets · ruff · bandit
-```
-
-Run locally:
-```bash
-make lint    # ruff + eslint
-make test    # pytest with mocked LLM
-make scan    # bandit + npm audit + trivy
 ```
 
 ---
 
 ## Compliance Rules
 
-Enforced at inference time (hard-coded in the LLM system prompt and recommendation service):
+Enforced at inference time — injected into the LLM system prompt and checked in `recommendation_service.py`:
 
-| Rule ID | Description | Severity |
+| Rule | Trigger | Effect |
 |---|---|---|
-| OEM-INT-001 | Do not bypass safety interlocks | Critical — floors risk to 0.90 |
-| ASME-PRESS-002 | Verify pressure boundaries before restart | High |
-| API-INSPECT-003 | Confirm inspection checklist completion | Medium |
+| OEM-INT-001 | "bypass" or "interlock" in incident text | Risk floor → **0.90**, violation added |
+| ASME-PRESS-002 | Pressure boundary restart scenario | LLM instructed to cite rule in rationale |
+| API-INSPECT-003 | Inspection or checklist reference | LLM instructed to cite rule in rationale |
 
 ---
 
-## Roles
+## DevSecOps
 
-| Role | Permissions |
+```
+Every push / PR triggers GitHub Actions:
+
+  api job   → ruff lint → pytest → bandit SAST
+  web job   → eslint → npm audit --audit-level=high
+  container → docker build → trivy image scan (CRITICAL/HIGH, fail on unfixed)
+
+Pre-commit (local):
+  detect-private-key · detect-secrets · ruff · bandit
+```
+
+```bash
+make lint    # ruff + eslint
+make test    # pytest
+make scan    # bandit + npm audit + trivy
+```
+
+---
+
+## Why FORGE vs the competition
+
+| Product | Gap vs FORGE |
 |---|---|
-| `operator` | Ingest documents, submit incidents, view context and analytics |
-| `approver` | All operator permissions + approve/reject recommendations, view audit |
-| `admin` | Full access |
+| **IBM Maximo + Watson** | Months to deploy, six-figure cost. LLM recommendations are black-box, no rationale, no approval gate. |
+| **C3.ai Predictive Maintenance** | Requires a data lake and cloud infra. ML scores only — no explainability, no compliance enforcement. |
+| **Aspen APM (Meridium)** | Heavy process-industry focus, rule-based recommendations, expensive per-seat licensing. |
+| **Augury** | Vibration-only sensors. No document ingestion, no LLM reasoning, no approval workflow. |
+| **SAP PM + AI** | Locked to SAP ERP. No open architecture. Extremely slow to deploy. |
 
----
-
-## Competitive Landscape
-
-The industrial predictive maintenance and AI-assisted operations market is dominated by legacy enterprise vendors with years of installed base. IMAM Lite is not trying to replace them at scale — it is demonstrating an architecture that is faster to integrate, cheaper to run, and more explainable than any of them.
-
-| Product | Vendor | What it does | Key weakness vs IMAM Lite |
-|---|---|---|---|
-| **Maximo + Watson** | IBM | CMMS + AI anomaly detection, work order management | Requires full Maximo deployment (months, six figures). AI recommendations are black-box alerts with no rationale. No LLM-grounded explanation. |
-| **Asset Performance Management (APM)** | Aspen Technology (Meridium) | Reliability-centred maintenance, failure mode analysis | Heavy process-industry focus, expensive per-seat licensing. Recommendations are rule-based, not generative. |
-| **C3 Predictive Maintenance** | C3.ai | Enterprise ML on sensor data, integration with SAP/Oracle | Requires cloud infrastructure and data lake. Black-box ML scores only — no explainability layer. No built-in human approval gate. |
-| **Samsara Asset Intelligence** | Samsara | IoT sensor monitoring, fleet/equipment health | Strong on connectivity, weak on reasoning. Surfaces alerts, not ranked actions with rationale. No compliance rule enforcement. |
-| **Augury** | Augury | Vibration + acoustic sensor ML for rotating equipment | Sensor-specific (vibration only). No document ingestion, no institutional memory, no LLM reasoning layer. |
-| **ServiceMax / Field Service** | Salesforce | Field service dispatch, mobile technician workflow | Workflow tool, not AI. Relies on technician knowledge, not retrieved institutional memory. |
-| **SAP PM + AI** | SAP | Plant maintenance integrated into SAP ERP | Locked to SAP ERP. AI features are add-ons with no open architecture. Extremely slow to deploy. |
-| **Fiix CMMS** | Rockwell Automation | Cloud CMMS, work order management, parts inventory | No predictive ML. No LLM. Recommendation engine is rule-based. No audit trail for AI decisions. |
-
-### What IMAM Lite does differently
-
-**1. Fused risk scoring — no single point of failure.**
-Most systems produce one signal (ML anomaly score, or an LLM output). IMAM Lite fuses three: an ML text classifier, a Groq LLM, and a hard keyword safety floor. The maximum wins. A single model being overconfident cannot suppress a high-risk signal.
-
-**2. Explainability is first-class, not an afterthought.**
-Every recommendation includes a ranked action list with rationale text, confidence scores, and evidence links to source documents. Operators are not told *what* to do — they are told *why*, with citations.
-
-**3. Compliance is enforced at inference time.**
-Competitors surface alerts. IMAM Lite checks OEM interlock rules, ASME pressure boundary requirements, and inspection checklist obligations against every recommendation before it leaves the service. Violations block or flag the recommendation automatically.
-
-**4. Human approval is baked into the data model.**
-High-risk recommendations (score ≥ 0.70) enter `pending_approval` state and cannot proceed without an approver-role sign-off. This is audited. No competitor in this list has an equivalent built-in approval gate — they assume the human is watching the dashboard.
-
-**5. Modern, lightweight stack.**
-IBM Maximo needs a DBA and months of implementation. C3.ai needs a data lake. IMAM Lite runs on DuckDB (a single file), FastAPI, and Next.js. The full pipeline — seed, train, serve — runs in under two minutes on a laptop.
-
-**6. Institutional memory, not just telemetry.**
-Most systems monitor signals. IMAM Lite ingests OEM manuals, maintenance logs, and incident history and uses them as evidence in recommendations. The LLM is grounded in retrieved documents, not generating from general knowledge alone.
+**What FORGE does differently:**
+1. **Fused scoring** — three independent signals, maximum wins. One model can't suppress a high-risk signal.
+2. **Explainability first** — every recommendation has ranked actions, rationale text, confidence scores, and evidence links.
+3. **Compliance at inference time** — OEM interlock and ASME pressure rules checked on every recommendation before it leaves the service.
+4. **Built-in approval gate** — high-risk recommendations enter `pending_approval`, locked until an approver signs off. Fully audited.
+5. **Real degradation data** — trained on NASA CMAPSS run-to-failure cycles, not synthetic Gaussian noise.
+6. **Lightweight** — runs on a single DuckDB file, FastAPI, and Next.js. Full pipeline in under two minutes on a laptop.
 
 ---
 
 ## License
 
-Copyright (c) 2025 Rancidcake. All Rights Reserved.
-
-This software is proprietary and confidential. Viewing is permitted for evaluation and demonstration purposes only. Redistribution, modification, and commercial use are prohibited. See [LICENSE](LICENSE) for full terms.
+Copyright (c) 2025 Rancidcake. All Rights Reserved.  
+Proprietary and confidential. Viewing permitted for evaluation only. See [LICENSE](LICENSE).
